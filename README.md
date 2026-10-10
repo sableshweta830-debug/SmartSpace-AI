@@ -129,6 +129,17 @@ SmartSpace-AI/
 
 ## 6. Installation & Startup (Windows PowerShell)
 
+### ⚡ One-Click Instant Launcher (Fastest)
+Double-click `start.bat` or run in PowerShell:
+```powershell
+.\start.ps1
+```
+This automatically boots the FastAPI backend on port 8000, Vite frontend on port 5173, and opens your default browser at `http://127.0.0.1:5173/`!
+
+---
+
+### Manual Step-by-Step Setup:
+
 ### Step 1: Clone or Navigate to the Repository
 ```powershell
 cd c:\Users\Asus\Downloads\index\SmartSpace-AI
