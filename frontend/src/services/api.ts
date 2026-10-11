@@ -10,8 +10,15 @@ const getApiBaseUrl = (): string => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
   }
-  if (typeof window !== 'undefined' && window.location?.hostname) {
-    return `http://${window.location.hostname}:8000`;
+  // When running on GitHub Pages or HTTPS public domain, connect to Render backend
+  if (typeof window !== 'undefined') {
+    const hostname = window.location?.hostname || '';
+    if (hostname.includes('github.io') || window.location.protocol === 'https:') {
+      return 'https://smartspace-ai.onrender.com';
+    }
+    if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+      return `http://${hostname}:8000`;
+    }
   }
   return 'http://127.0.0.1:8000';
 };
