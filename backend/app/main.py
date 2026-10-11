@@ -104,12 +104,14 @@ def root():
 @app.get("/health")
 def health_check():
     """Health status check."""
+    dialect = engine.dialect.name
+    db_type = "PostgreSQL (Supabase)" if dialect == "postgresql" else "SQLite"
     return {
         "status": "ok",
         "healthy": True,
         "app": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "database": "connected (SQLite)",
+        "database": f"connected ({db_type})",
         "ai_engine": "Deterministic Rule-Based & Semantic Scorer (Active)"
     }
 

@@ -2,9 +2,11 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env if present
-env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+# Load .env or backend.env if present
+backend_dir = Path(__file__).resolve().parent.parent.parent
+for env_file in [backend_dir / ".env", backend_dir / "backend.env", backend_dir.parent / ".env"]:
+    if env_file.exists():
+        load_dotenv(dotenv_path=env_file)
 
 class Settings:
     PROJECT_NAME: str = "Intent-to-Interface: Adaptive AI Workspace"
