@@ -6,7 +6,17 @@ Coordinates intent detection, layout engine, data assembly, and database persist
 import json
 from typing import Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
-from app.models.models import Task, WorkspaceConfiguration, ProjectTask, UserPreference
+from app.models.models import (
+    Task,
+    WorkspaceConfiguration,
+    ProjectTask,
+    UserPreference,
+    Profile,
+    UserIntent,
+    Workspace,
+    WorkspaceComponent,
+    ActivityLog
+)
 from app.schemas.schemas import (
     WorkspaceResponse,
     WorkspaceConfig,
@@ -124,9 +134,65 @@ class WorkspaceService:
 
         task_id = None
         if save_to_history:
-            # Create Task in DB
+            # Ensure Profile exists
+            profile = db.query(Profile).filter(Profile.id == "demo_user").first()
+            if not profile:
+                profile = Profile(
+                    id="demo_user",
+                    name="Alex Mercer",
+                    email="alex.mercer@intentai.dev",
+                    role="Principal Solutions Architect",
+                    preferences={"theme": "light", "voice_input_enabled": True}
+                )
+                db.add(profile)
+                db.commit()
+
+            # 1. Record User Intent
+            new_intent = UserIntent(
+                user_id="demo_user",
+                intent_text=text,
+                intent_type=detected_intent,
+                confidence_score=confidence
+            )
+            db.add(new_intent)
+            db.commit()
+            db.refresh(new_intent)
+
+            # 2. Record Workspace Entity
+            new_workspace = Workspace(
+                user_id="demo_user",
+                name=task_title,
+                description=summary,
+                current_intent_id=new_intent.id,
+                layout_config={
+                    "intent": detected_intent,
+                    "confidence": confidence,
+                    "summary": summary,
+                    "widgets": [w.model_dump() for w in widgets],
+                    "explanation": overall_explanation
+                }
+            )
+            db.add(new_workspace)
+            db.commit()
+            db.refresh(new_workspace)
+
+            # 3. Record Workspace Components
+            for idx, w in enumerate(widgets):
+                comp = WorkspaceComponent(
+                    workspace_id=new_workspace.id,
+                    component_type=str(w.type),
+                    component_name=w.title,
+                    position=idx,
+                    priority=w.priority,
+                    visibility=not w.hidden,
+                    data_source={"category": w.category, "size": w.size}
+                )
+                db.add(comp)
+
+            # 4. Create Task in DB linked to Workspace
             new_task = Task(
                 user_id="demo_user",
+                workspace_id=new_workspace.id,
                 title=task_title,
                 original_prompt=text,
                 detected_intent=detected_intent,
@@ -137,7 +203,7 @@ class WorkspaceService:
             db.refresh(new_task)
             task_id = new_task.id
 
-            # Save Workspace Configuration in DB
+            # 5. Save Workspace Configuration in DB (for backward compatibility)
             config_entry = WorkspaceConfiguration(
                 task_id=new_task.id,
                 configuration_json=json.dumps({
@@ -152,10 +218,26 @@ class WorkspaceService:
                     "available_info": available_info,
                     "missing_info": missing_info,
                     "recommended_next_step": recommended_next_step,
-                    "data_source": "Demo Data"
+                    "data_source": "Demo Data",
+                    "workspace_id": new_workspace.id,
+                    "intent_id": new_intent.id
                 })
             )
             db.add(config_entry)
+
+            # 6. Record Activity Log
+            activity = ActivityLog(
+                user_id="demo_user",
+                workspace_id=new_workspace.id,
+                action="workspace_generated",
+                metadata_json={
+                    "intent": detected_intent,
+                    "confidence": confidence,
+                    "components_count": len(widgets),
+                    "prompt": text
+                }
+            )
+            db.add(activity)
             db.commit()
 
         return WorkspaceResponse(

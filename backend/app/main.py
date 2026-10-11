@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.database import engine, Base, SessionLocal
-from app.models.models import ProjectTask, UserPreference
+from app.models.models import ProjectTask, UserPreference, Profile
 from app.demo_data import INITIAL_PROJECT_TASKS
 from app.api.endpoints import router as api_router
 
@@ -18,6 +18,18 @@ Base.metadata.create_all(bind=engine)
 def seed_initial_data():
     db = SessionLocal()
     try:
+        profile = db.query(Profile).filter(Profile.id == "demo_user").first()
+        if not profile:
+            profile = Profile(
+                id="demo_user",
+                name="Alex Mercer",
+                email="alex.mercer@intentai.dev",
+                role="Principal Solutions Architect",
+                preferences={"theme": "light", "voice_input_enabled": True}
+            )
+            db.add(profile)
+            db.commit()
+
         task_count = db.query(ProjectTask).count()
         if task_count == 0:
             for item in INITIAL_PROJECT_TASKS:
