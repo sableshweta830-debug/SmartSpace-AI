@@ -38,6 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (path === '/saved') return ['Saved Workspaces'];
     if (path === '/settings') return ['Settings'];
     if (path === '/help') return ['Documentation'];
+    if (path === '/ai-chat') return ['AI Assistant'];
     return ['Workspace'];
   };
 

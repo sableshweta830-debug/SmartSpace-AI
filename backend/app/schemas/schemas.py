@@ -48,7 +48,7 @@ class WorkspaceConfig(BaseModel):
     explanation: str
 
 class WorkspaceResponse(BaseModel):
-    task_id: Optional[int] = None
+    task_id: Optional[str] = None
     task_title: str
     intent: str
     confidence: float
@@ -78,7 +78,7 @@ class TaskUpdate(BaseModel):
     is_saved: Optional[bool] = None
 
 class TaskOut(BaseModel):
-    id: int
+    id: str
     user_id: str
     title: str
     original_prompt: str
@@ -92,7 +92,7 @@ class TaskOut(BaseModel):
 
 # History item schema
 class HistoryItem(BaseModel):
-    id: int
+    id: str
     title: str
     original_prompt: str
     detected_intent: str
@@ -120,7 +120,7 @@ class ProjectTaskUpdate(BaseModel):
     priority: Optional[str] = None
 
 class ProjectTaskOut(BaseModel):
-    id: int
+    id: str
     project_name: str
     title: str
     status: str
@@ -129,3 +129,17 @@ class ProjectTaskOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ─── AI Chat Schemas ──────────────────────────────────────────────────────────
+class ChatRequest(BaseModel):
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="User message to the AI assistant"
+    )
+
+class ChatResponse(BaseModel):
+    response: str = Field(..., description="AI-generated response")
+    provider: str = Field(..., description="LLM provider used (e.g., 'Google Gemini')")

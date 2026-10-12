@@ -1,27 +1,23 @@
 """
 Workspace Service:
-Coordinates intent detection, layout engine, data assembly, and database persistence.
+Coordinates intent detection, layout engine, data assembly, and MongoDB persistence.
 """
 
 import json
 from typing import Dict, Any, List, Tuple
-from sqlalchemy.orm import Session
+
+from pymongo.database import Database
+
 from app.models.models import (
-    Task,
-    WorkspaceConfiguration,
-    ProjectTask,
-    UserPreference,
-    Profile,
-    UserIntent,
-    Workspace,
-    WorkspaceComponent,
-    ActivityLog
+    TASKS, WORKSPACE_CONFIGS, PROJECT_TASKS, PROFILES,
+    USER_INTENTS, WORKSPACES, WORKSPACE_COMPONENTS, ACTIVITY_LOGS,
+    new_task, new_workspace_config, new_project_task, generate_uuid, now,
 )
 from app.schemas.schemas import (
     WorkspaceResponse,
     WorkspaceConfig,
     RecommendedAction,
-    WidgetConfig
+    WidgetConfig,
 )
 from app.services.intent_service import intent_service
 from app.services.layout_engine import layout_engine
@@ -32,12 +28,17 @@ from app.demo_data import (
     PROJECT_REVIEW_DATA,
     CUSTOMER_COMPLAINTS_DATA,
     PRESENTATION_PREPARATION_DATA,
-    INITIAL_PROJECT_TASKS
+    INITIAL_PROJECT_TASKS,
 )
 
+
 class WorkspaceService:
-    def get_widget_data_for_intent(self, intent: str, db: Session) -> Tuple[Dict[str, Any], List[RecommendedAction]]:
+
+    def get_widget_data_for_intent(
+        self, intent: str, db: Database
+    ) -> Tuple[Dict[str, Any], List[RecommendedAction]]:
         """Retrieves and prepares widget data for the detected intent."""
+
         if intent == "meeting_preparation":
             raw_data = CLIENT_MEETING_DATA
             actions = [RecommendedAction(**act) for act in raw_data["recommended_actions"]]
@@ -50,28 +51,31 @@ class WorkspaceService:
 
         elif intent == "project_review":
             raw_data = dict(PROJECT_REVIEW_DATA)
-            # Retrieve project tasks directly from SQLite database so user edits reflect dynamically!
-            db_tasks = db.query(ProjectTask).order_by(ProjectTask.id.asc()).all()
+            # Fetch project tasks from MongoDB so user edits reflect dynamically
+            db_tasks = list(db[PROJECT_TASKS].find({}).sort("created_at", 1))
             if not db_tasks:
-                # Seed if empty
                 for item in INITIAL_PROJECT_TASKS:
-                    new_pt = ProjectTask(**item)
-                    db.add(new_pt)
-                db.commit()
-                db_tasks = db.query(ProjectTask).order_by(ProjectTask.id.asc()).all()
+                    doc = new_project_task(
+                        title=item["title"],
+                        status=item.get("status", "todo"),
+                        priority=item.get("priority", "medium"),
+                        due_date=item.get("due_date", ""),
+                        project_name=item.get("project_name", "Nova Core Platform"),
+                    )
+                    db[PROJECT_TASKS].insert_one(doc)
+                db_tasks = list(db[PROJECT_TASKS].find({}).sort("created_at", 1))
 
-            tasks_list = [
+            raw_data["task_list"] = [
                 {
-                    "id": t.id,
-                    "title": t.title,
-                    "status": t.status,
-                    "priority": t.priority,
-                    "due_date": t.due_date,
-                    "project_name": t.project_name
+                    "id": t["_id"],
+                    "title": t["title"],
+                    "status": t["status"],
+                    "priority": t["priority"],
+                    "due_date": t.get("due_date", ""),
+                    "project_name": t.get("project_name", "Nova Core Platform"),
                 }
                 for t in db_tasks
             ]
-            raw_data["task_list"] = tasks_list
             actions = [RecommendedAction(**act) for act in raw_data["recommended_actions"]]
             return raw_data, actions
 
@@ -86,20 +90,27 @@ class WorkspaceService:
             return raw_data, actions
 
         else:
-            # General task fallback data
             raw_data = dict(PROJECT_REVIEW_DATA)
-            db_tasks = db.query(ProjectTask).limit(5).all()
+            db_tasks = list(db[PROJECT_TASKS].find({}).limit(5))
             raw_data["task_list"] = [
-                {"id": t.id, "title": t.title, "status": t.status, "priority": t.priority, "due_date": t.due_date}
+                {
+                    "id": t["_id"],
+                    "title": t["title"],
+                    "status": t["status"],
+                    "priority": t["priority"],
+                    "due_date": t.get("due_date", ""),
+                }
                 for t in db_tasks
             ]
             actions = [RecommendedAction(**act) for act in raw_data["recommended_actions"]]
             return raw_data, actions
 
-    def generate_workspace(self, text: str, db: Session, save_to_history: bool = True) -> WorkspaceResponse:
+    def generate_workspace(
+        self, text: str, db: Database, save_to_history: bool = True
+    ) -> WorkspaceResponse:
         """
         Processes prompt text, generates adaptive workspace configuration,
-        and saves the task to the database.
+        and saves the task to MongoDB.
         """
         # 1. Analyze user intent
         analysis = intent_service.analyze_intent(text)
@@ -116,7 +127,7 @@ class WorkspaceService:
             explanations_per_widget,
             available_info,
             missing_info,
-            recommended_next_step
+            recommended_next_step,
         ) = layout_engine.generate_layout(detected_intent, confidence)
 
         # 3. Assemble widget data and recommended actions
@@ -129,83 +140,81 @@ class WorkspaceService:
             confidence=confidence,
             summary=summary,
             widgets=widgets,
-            explanation=overall_explanation
+            explanation=overall_explanation,
         )
 
         task_id = None
         if save_to_history:
-            # Ensure Profile exists
-            profile = db.query(Profile).filter(Profile.id == "demo_user").first()
-            if not profile:
-                profile = Profile(
-                    id="demo_user",
-                    name="Alex Mercer",
-                    email="alex.mercer@intentai.dev",
-                    role="Principal Solutions Architect",
-                    preferences={"theme": "light", "voice_input_enabled": True}
-                )
-                db.add(profile)
-                db.commit()
+            # Ensure Profile exists in MongoDB
+            if not db[PROFILES].find_one({"_id": "demo_user"}):
+                db[PROFILES].insert_one({
+                    "_id": "demo_user",
+                    "name": "Alex Mercer",
+                    "email": "alex.mercer@intentai.dev",
+                    "role": "Principal Solutions Architect",
+                    "preferences": {"theme": "light", "voice_input_enabled": True},
+                    "created_at": now(),
+                    "updated_at": now(),
+                })
 
             # 1. Record User Intent
-            new_intent = UserIntent(
-                user_id="demo_user",
-                intent_text=text,
-                intent_type=detected_intent,
-                confidence_score=confidence
-            )
-            db.add(new_intent)
-            db.commit()
-            db.refresh(new_intent)
+            intent_id = generate_uuid()
+            db[USER_INTENTS].insert_one({
+                "_id": intent_id,
+                "user_id": "demo_user",
+                "intent_text": text,
+                "intent_type": detected_intent,
+                "confidence_score": confidence,
+                "created_at": now(),
+            })
 
-            # 2. Record Workspace Entity
-            new_workspace = Workspace(
-                user_id="demo_user",
-                name=task_title,
-                description=summary,
-                current_intent_id=new_intent.id,
-                layout_config={
+            # 2. Record Workspace
+            workspace_id = generate_uuid()
+            db[WORKSPACES].insert_one({
+                "_id": workspace_id,
+                "user_id": "demo_user",
+                "name": task_title,
+                "description": summary,
+                "current_intent_id": intent_id,
+                "layout_config": {
                     "intent": detected_intent,
                     "confidence": confidence,
                     "summary": summary,
                     "widgets": [w.model_dump() for w in widgets],
-                    "explanation": overall_explanation
-                }
-            )
-            db.add(new_workspace)
-            db.commit()
-            db.refresh(new_workspace)
+                    "explanation": overall_explanation,
+                },
+                "created_at": now(),
+                "updated_at": now(),
+            })
 
             # 3. Record Workspace Components
             for idx, w in enumerate(widgets):
-                comp = WorkspaceComponent(
-                    workspace_id=new_workspace.id,
-                    component_type=str(w.type),
-                    component_name=w.title,
-                    position=idx,
-                    priority=w.priority,
-                    visibility=not w.hidden,
-                    data_source={"category": w.category, "size": w.size}
-                )
-                db.add(comp)
+                db[WORKSPACE_COMPONENTS].insert_one({
+                    "_id": generate_uuid(),
+                    "workspace_id": workspace_id,
+                    "component_type": str(w.type),
+                    "component_name": w.title,
+                    "position": idx,
+                    "priority": w.priority,
+                    "visibility": not w.hidden,
+                    "data_source": {"category": w.category, "size": w.size},
+                    "created_at": now(),
+                })
 
-            # 4. Create Task in DB linked to Workspace
-            new_task = Task(
-                user_id="demo_user",
-                workspace_id=new_workspace.id,
+            # 4. Create Task in MongoDB
+            task_doc = new_task(
                 title=task_title,
                 original_prompt=text,
                 detected_intent=detected_intent,
-                status="active"
+                workspace_id=workspace_id,
+                status="active",
             )
-            db.add(new_task)
-            db.commit()
-            db.refresh(new_task)
-            task_id = new_task.id
+            db[TASKS].insert_one(task_doc)
+            task_id = task_doc["_id"]
 
-            # 5. Save Workspace Configuration in DB (for backward compatibility)
-            config_entry = WorkspaceConfiguration(
-                task_id=new_task.id,
+            # 5. Save Workspace Configuration
+            config_doc = new_workspace_config(
+                task_id=task_id,
                 configuration_json=json.dumps({
                     "task_title": task_title,
                     "intent": detected_intent,
@@ -219,26 +228,26 @@ class WorkspaceService:
                     "missing_info": missing_info,
                     "recommended_next_step": recommended_next_step,
                     "data_source": "Demo Data",
-                    "workspace_id": new_workspace.id,
-                    "intent_id": new_intent.id
-                })
+                    "workspace_id": workspace_id,
+                    "intent_id": intent_id,
+                }),
             )
-            db.add(config_entry)
+            db[WORKSPACE_CONFIGS].insert_one(config_doc)
 
             # 6. Record Activity Log
-            activity = ActivityLog(
-                user_id="demo_user",
-                workspace_id=new_workspace.id,
-                action="workspace_generated",
-                metadata_json={
+            db[ACTIVITY_LOGS].insert_one({
+                "_id": generate_uuid(),
+                "user_id": "demo_user",
+                "workspace_id": workspace_id,
+                "action": "workspace_generated",
+                "metadata_json": {
                     "intent": detected_intent,
                     "confidence": confidence,
                     "components_count": len(widgets),
-                    "prompt": text
-                }
-            )
-            db.add(activity)
-            db.commit()
+                    "prompt": text,
+                },
+                "created_at": now(),
+            })
 
         return WorkspaceResponse(
             task_id=task_id,
@@ -256,11 +265,12 @@ class WorkspaceService:
             available_info=available_info,
             missing_info=missing_info,
             recommended_next_step=recommended_next_step,
-            workspace_configuration=workspace_config
+            workspace_configuration=workspace_config,
         )
 
     def get_default_dashboard(self) -> Dict[str, Any]:
         """Returns the default initial dashboard configuration."""
         return DEFAULT_DASHBOARD_DATA
+
 
 workspace_service = WorkspaceService()

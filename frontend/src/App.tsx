@@ -7,6 +7,7 @@ import { TaskHistoryPage } from './pages/TaskHistoryPage';
 import { SavedWorkspacesPage } from './pages/SavedWorkspacesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { HelpPage } from './pages/HelpPage';
+import { AIChatPage } from './pages/AIChatPage';
 import { WorkspaceResponse } from './types';
 import { api } from './services/api';
 
@@ -73,6 +74,7 @@ export function App() {
             element={<SettingsPage darkMode={darkMode} onToggleTheme={toggleTheme} />}
           />
           <Route path="/help" element={<HelpPage />} />
+          <Route path="/ai-chat" element={<AIChatPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Layout>

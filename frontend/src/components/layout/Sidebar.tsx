@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   User,
+  Bot,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -29,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { name: 'Adaptive Workspace', path: '/workspace', icon: Layers, badge: activeTaskCount > 0 ? 'Live' : undefined },
     { name: 'Task History', path: '/history', icon: History },
     { name: 'Saved Workspaces', path: '/saved', icon: Bookmark },
+    { name: 'AI Assistant', path: '/ai-chat', icon: Bot, badge: 'New' },
     { name: 'Settings', path: '/settings', icon: Settings },
     { name: 'Help & Docs', path: '/help', icon: HelpCircle },
   ];

@@ -6,78 +6,62 @@ Tagline: "An interface that adapts to your intent, not the other way around."
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.database import engine, Base, SessionLocal
-from app.models.models import ProjectTask, UserPreference, Profile
+from app.database import get_database, get_client
+from app.models.models import (
+    PROFILES, PROJECT_TASKS, USER_PREFERENCES,
+    new_profile, new_project_task, new_user_preference
+)
 from app.demo_data import INITIAL_PROJECT_TASKS
 from app.api.endpoints import router as api_router
 
-# Initialize database schema
-Base.metadata.create_all(bind=engine)
 
-# Seed initial project tasks and default preferences if not existing
+# ── Seed initial data into MongoDB ───────────────────────────────────────────
 def seed_initial_data():
-    db = SessionLocal()
     try:
-        profile = db.query(Profile).filter(Profile.id == "demo_user").first()
-        if not profile:
-            profile = Profile(
-                id="demo_user",
-                name="Alex Mercer",
-                email="alex.mercer@intentai.dev",
-                role="Principal Solutions Architect",
-                preferences={"theme": "light", "voice_input_enabled": True}
-            )
-            db.add(profile)
-            db.commit()
+        db = get_database()
 
-        task_count = db.query(ProjectTask).count()
-        if task_count == 0:
+        # Seed demo profile
+        if not db[PROFILES].find_one({"_id": "demo_user"}):
+            db[PROFILES].insert_one(new_profile(_id="demo_user"))
+
+        # Seed project tasks
+        if db[PROJECT_TASKS].count_documents({}) == 0:
             for item in INITIAL_PROJECT_TASKS:
-                db.add(ProjectTask(**item))
-            db.commit()
+                doc = new_project_task(
+                    title=item["title"],
+                    status=item.get("status", "todo"),
+                    priority=item.get("priority", "medium"),
+                    due_date=item.get("due_date", ""),
+                    project_name=item.get("project_name", "Nova Core Platform"),
+                )
+                db[PROJECT_TASKS].insert_one(doc)
 
-        pref = db.query(UserPreference).filter(UserPreference.user_id == "demo_user").first()
-        if not pref:
-            db.add(UserPreference(
-                user_id="demo_user",
-                theme="light",
-                preferred_widgets="[]",
-                layout_preferences="{}"
-            ))
-            db.commit()
+        # Seed user preferences
+        if not db[USER_PREFERENCES].find_one({"user_id": "demo_user"}):
+            db[USER_PREFERENCES].insert_one(new_user_preference(user_id="demo_user"))
+
     except Exception as e:
-        db.rollback()
-        print(f"Warning: could not seed initial database data: {e}")
-    finally:
-        db.close()
+        print(f"Warning: could not seed initial data: {e}")
+
 
 seed_initial_data()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Backend API for Intent-to-Interface: Adaptive AI Workspace. Automatically detects user goal and delivers adaptive component-driven workspace configurations.",
-    version=settings.VERSION
+    description="Backend API for Intent-to-Interface: Adaptive AI Workspace.",
+    version=settings.VERSION,
 )
 
-# Configure CORS
-origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "*"
-]
-
+# ── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/")
 def root():
@@ -97,25 +81,34 @@ def root():
             "history": "/api/history",
             "preferences": "/api/preferences",
             "demo_analytics": "/api/demo/analytics",
-            "demo_projects": "/api/demo/projects"
-        }
+            "demo_projects": "/api/demo/projects",
+        },
     }
+
 
 @app.get("/health")
 def health_check():
-    """Health status check."""
-    dialect = engine.dialect.name
-    db_type = "PostgreSQL (Supabase)" if dialect == "postgresql" else "SQLite"
+    """Health status check — pings MongoDB to confirm connectivity."""
+    try:
+        client = get_client()
+        client.admin.command("ping")
+        db_status = f"connected (MongoDB · {settings.MONGODB_DB_NAME})"
+        healthy = True
+    except Exception as e:
+        db_status = f"error: {e}"
+        healthy = False
+
     return {
-        "status": "ok",
-        "healthy": True,
+        "status": "ok" if healthy else "degraded",
+        "healthy": healthy,
         "app": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "database": f"connected ({db_type})",
-        "ai_engine": "Deterministic Rule-Based & Semantic Scorer (Active)"
+        "database": db_status,
+        "ai_engine": "Deterministic Rule-Based & Semantic Scorer (Active)",
     }
 
-# Include API routes
+
+# ── API routes ────────────────────────────────────────────────────────────────
 app.include_router(api_router, prefix="/api")
 
 if __name__ == "__main__":

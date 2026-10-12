@@ -1,66 +1,64 @@
 """
-Database Connection Diagnostic Tool for Intent-to-Interface.
-Tests connection to Supabase / PostgreSQL or SQLite and reports status.
+MongoDB Connection Diagnostic Tool for SmartSpace AI.
+Tests connection to MongoDB Atlas (or local) and reports status.
 """
 
 import sys
 from app.core.config import settings
-from app.database import engine
-from sqlalchemy import text
 
 
 def check():
-    url = settings.DATABASE_URL
+    uri = settings.MONGODB_URI
+    db_name = settings.MONGODB_DB_NAME
+
     print("\n" + "=" * 60)
-    print("  SmartSpace AI - Database Connection Diagnostic")
+    print("  SmartSpace AI - MongoDB Connection Diagnostic")
     print("=" * 60)
 
     # Mask password for safe display
-    masked_url = url
-    if "@" in url:
-        parts = url.split("@")
-        credentials = parts[0].split(":")
-        if len(credentials) >= 3:
-            masked_url = f"{credentials[0]}:{credentials[1]}:****@{parts[1]}"
+    masked_uri = uri
+    if "@" in uri:
+        at_idx = uri.rfind("@")
+        proto_end = uri.find("://") + 3
+        credentials = uri[proto_end:at_idx]
+        host_part = uri[at_idx + 1:]
+        user = credentials.split(":")[0]
+        masked_uri = f"{uri[:proto_end]}{user}:****@{host_part}"
 
-    print(f"Target Database URL: {masked_url}")
+    print(f"MongoDB URI  : {masked_uri}")
+    print(f"Database Name: {db_name}")
 
-    if "apna_password" in url or "db.xxxx.supabase.co" in url:
-        print("\n❌ ERROR: Placeholder detected in your .env / backend.env file!")
-        print("Aapne file mein placeholder daala hai:")
-        print("  - 'apna_password' ki jagah apna ACTUAL Supabase password daalein.")
-        print("  - 'db.xxxx.supabase.co' ki jagah apna ACTUAL Supabase project URL daalein.")
-        print("\nSupabase Dashboard -> Settings -> Database -> Connection string (URI) se copy karein.")
+    # Detect placeholder
+    if "your_password" in uri or "xxxx" in uri or "username:password" in uri:
+        print("[ERROR] Placeholder URI detected in backend.env!")
+        print("  MONGODB_URI mein apna actual MongoDB Atlas connection string daalein.")
+        print("  MongoDB Atlas → Connect → Drivers → Copy URI")
         print("=" * 60 + "\n")
         return False
 
     try:
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT 1;")).scalar()
-            dialect = engine.dialect.name
-            print(f"\n✅ SUCCESS: Database connected successfully!")
-            print(f"Database Type: {dialect.upper()}")
+        from pymongo import MongoClient
 
-            if dialect == "postgresql":
-                tables = conn.execute(
-                    text(
-                        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';"
-                    )
-                ).fetchall()
-                table_names = [t[0] for t in tables]
-                print(f"Supabase Tables Found ({len(table_names)}): {table_names}")
-            else:
-                tables = conn.execute(
-                    text("SELECT name FROM sqlite_master WHERE type='table';")
-                ).fetchall()
-                table_names = [t[0] for t in tables]
-                print(f"SQLite Tables Found ({len(table_names)}): {table_names}")
+        client = MongoClient(uri, serverSelectionTimeoutMS=5000)
+        # Force a real connection
+        client.admin.command("ping")
 
-            print("=" * 60 + "\n")
-            return True
+        db = client[db_name]
+        collections = db.list_collection_names()
+
+        print(f"\n[OK] SUCCESS: MongoDB connected successfully!")
+        print(f"Collections Found ({len(collections)}): {collections if collections else '(empty — will be created on first use)'}")
+        print("=" * 60 + "\n")
+        client.close()
+        return True
+
     except Exception as e:
-        print(f"\n❌ FAILED TO CONNECT:")
+        print(f"\n[FAIL] FAILED TO CONNECT:")
         print(f"Error: {e}")
+        print("\nCheck karo:")
+        print("  1. MONGODB_URI sahi hai? (backend.env mein)")
+        print("  2. MongoDB Atlas mein IP whitelist mein 0.0.0.0/0 add hai?")
+        print("  3. Username/password correct hai?")
         print("=" * 60 + "\n")
         return False
 

@@ -6,6 +6,18 @@ import {
   DefaultDashboardData
 } from '../types';
 
+// ── AI Chat Types (keep here so no secrets ever touch frontend) ───────────
+export interface ChatMessage {
+  response: string;
+  provider: string;
+}
+
+export interface AiStatusResponse {
+  configured: boolean;
+  provider: string;
+  status: string;
+}
+
 const getApiBaseUrl = (): string => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
@@ -146,6 +158,19 @@ class ApiService {
       method: 'PATCH',
       body: JSON.stringify(updates),
     });
+  }
+
+  // ── AI Chat ───────────────────────────────────────────────────────────────
+  // API key lives ONLY on the backend. This method only sends the message text.
+  async sendChatMessage(message: string): Promise<ChatMessage> {
+    return this.request<ChatMessage>('/api/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+    });
+  }
+
+  async getAiStatus(): Promise<AiStatusResponse> {
+    return this.request<AiStatusResponse>('/api/ai/status');
   }
 }
 

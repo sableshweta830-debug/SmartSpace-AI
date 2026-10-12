@@ -1,40 +1,52 @@
-import re
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+"""
+MongoDB Database Connection for SmartSpace AI.
+Uses pymongo (sync) for FastAPI dependency injection.
+Collections replace SQL tables:
+  - profiles
+  - user_intents
+  - workspaces
+  - workspace_components
+  - tasks
+  - workspace_configurations
+  - user_preferences
+  - activity_logs
+  - project_tasks
+"""
+
+from pymongo import MongoClient
+from pymongo.database import Database
 from app.core.config import settings
 
-# Normalize Postgres dialect for SQLAlchemy 2.0 (postgres:// -> postgresql://)
-db_url = settings.DATABASE_URL
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
+# ── Singleton MongoClient ────────────────────────────────────────────────────
+_client: MongoClient | None = None
 
-is_sqlite = "sqlite" in db_url.lower()
 
-# SQLite specific connect args
-connect_args = {"check_same_thread": False} if is_sqlite else {}
+def get_client() -> MongoClient:
+    global _client
+    if _client is None:
+        _client = MongoClient(
+            settings.MONGODB_URI,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+        )
+    return _client
 
-# Engine configuration with Supabase / PostgreSQL resilience
-engine_kwargs = {
-    "connect_args": connect_args,
-    "echo": False
-}
 
-if not is_sqlite:
-    # Supabase connection resilience
-    engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_recycle"] = 300
-    engine_kwargs["pool_size"] = 10
-    engine_kwargs["max_overflow"] = 20
+def get_database() -> Database:
+    """Return the primary MongoDB database instance."""
+    return get_client()[settings.MONGODB_DB_NAME]
 
-engine = create_engine(db_url, **engine_kwargs)
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# ── FastAPI dependency ────────────────────────────────────────────────────────
+def get_db() -> Database:
+    """
+    FastAPI dependency — yields MongoDB database.
+    Use as:  db: Database = Depends(get_db)
+    """
+    return get_database()
 
-Base = declarative_base()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# ── Collection helpers ────────────────────────────────────────────────────────
+def col(name: str):
+    """Shortcut: get a collection by name."""
+    return get_database()[name]
